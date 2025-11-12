@@ -75,6 +75,12 @@ async function build() {
     copyFileSync('src/options/options.html', 'dist/options.html');
     copyFileSync('src/options/options.css', 'dist/options.css');
 
+    // Copy PDF.js worker
+    copyFileSync(
+      'node_modules/pdfjs-dist/build/pdf.worker.min.mjs',
+      'dist/pdf.worker.min.mjs'
+    );
+
     console.log('📦 Static files copied');
 
     // Generate icons

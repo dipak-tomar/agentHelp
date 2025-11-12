@@ -41,7 +41,7 @@
   "options_page": "options.html",
   "web_accessible_resources": [
     {
-      "resources": ["sidebar.html", "sidebar.css"],
+      "resources": ["sidebar.html", "sidebar.css", "pdf.worker.min.mjs"],
       "matches": ["<all_urls>"]
     }
   ]
