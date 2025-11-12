@@ -1,5 +1,6 @@
 import esbuild from 'esbuild';
 import { copyFileSync, mkdirSync } from 'fs';
+import { execSync } from 'child_process';
 import { join } from 'path';
 
 const isWatch = process.argv.includes('--watch');
@@ -75,6 +76,10 @@ async function build() {
     copyFileSync('src/options/options.css', 'dist/options.css');
 
     console.log('📦 Static files copied');
+
+    // Generate icons
+    console.log('🎨 Generating icons...');
+    execSync('node create-icons.cjs', { stdio: 'inherit' });
   } catch (error) {
     console.error('❌ Build failed:', error);
     process.exit(1);
