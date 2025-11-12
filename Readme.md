@@ -1,327 +1,636 @@
-# Roomi Copilot (Browser‑Only) — Technical Plan
+# Agent Help (Browser‑Only) — Technical Plan v2
 
-> Scope: **Chrome/Edge/Brave extension (MV3)** powered by **OpenAI via LangChainJS**.  
-> Goal: Writing assistance (rewrite, grammar, tone), selection “explain”, and a foundation for future features (streaming autocomplete, page Q&A).
+> **Scope**: Chrome/Edge/Brave extension (MV3) powered by OpenAI via LangChainJS
+> **Core Features**:
+> - 🤖 **Page-aware AI chat** (sidebar) - Ask questions about any webpage
+> - 📝 **Smart form autofill** - Fill applications using your resume/profile
+> - 💬 **Conversation memory** - Contextual follow-up questions
 
 ---
 
-## 1) Goals & Non‑Goals
+## 1) Vision & Goals
 
 ### Goals (v1)
-- Inline rewrite / grammar / tone adjustments for any editable field.
-- “Explain selection” for highlighted text (jargon, code, legal, etc.).
-- Keyboard first UX: **⌘/Ctrl+Enter** to improve, context‑menu action, and a subtle inline button.
-- Configurable **OpenAI model + base URL** (supports Azure/OpenRouter/proxy) via **LangChainJS**.
-- Minimal, private-by-default: key stored locally; page context limited to what’s needed.
+- **Sidebar AI Assistant**: Chat interface that understands the current page
+  - User asks: "What's this page about?", "Summarize the main points"
+  - AI responds with page context
+- **Intelligent Form Autofill**:
+  - Upload resume once → autofill job applications automatically
+  - AI maps resume data to form fields intelligently
+- **Conversation Memory**:
+  - Remember chat history within session
+  - Follow-up questions use prior context
+- **Privacy-first**:
+  - All data local (API key, resume, chat history)
+  - No telemetry, no cloud storage
 
 ### Non‑Goals (v1)
-- No cloud storage or user accounts.
-- No long‑term memory vector DB (will come in v1.3).
-- No multi‑provider UI beyond OpenAI-compatible APIs (v1 focuses on OpenAI surface with baseURL override).
+- No long-term RAG memory (v1.3 will add vector DB)
+- No YouTube-specific features (keep generic for now)
+- No multi-provider UI beyond OpenAI-compatible APIs
+- No cloud sync or user accounts
 
 ---
 
 ## 2) User Stories
 
-- *As a user*, I can press ⌘/Ctrl+Enter in any text box to get a cleaner, concise rewrite without changing intent.
-- *As a user*, I can select any text on a page, right‑click → “Explain with Roomi” to get a plain‑English summary.
-- *As a user*, I can pick model (`gpt-5`, `gpt-5-mini`, etc.) and temperature in an Options page.
-- *As a user*, I can trust the extension to never read passwords or secret fields and to avoid sending data from blocked domains.
+### Page Understanding
+- *As a user*, I can click the extension icon to open a sidebar
+- *As a user*, I can ask "What's the main point of this article?" and get an answer based on the page content
+- *As a user*, I can ask follow-up questions and the AI remembers our conversation
+- *As a user*, I can switch pages and start fresh conversations with new context
+
+### Form Autofill
+- *As a user*, I can upload my resume (PDF/text) in the Options page
+- *As a user*, when I visit a job application, I can click "Autofill with AI"
+- *As a user*, the extension intelligently fills my name, contact, experience, skills, and even essay questions
+- *As a user*, I can review and edit before submitting
+
+### Configuration
+- *As a user*, I can configure OpenAI API key, model, temperature, and baseURL
+- *As a user*, I can trust my data stays local and is never sent to third parties
 
 ---
 
 ## 3) Architecture Overview
 
 ### MV3 Components
-- **Background Service Worker (`background.ts`)**
-  - Owns the **LangChain ChatOpenAI** client.
-  - Receives requests from content scripts; invokes LLM; returns answer.
-  - Holds no secret other than user‑provided key in `chrome.storage.local`.
-- **Content Script (`content.ts`)**
-  - Detects editable fields & selection; injects quick‑action button; binds hotkeys.
-  - Marshals payload `{mode, text, url, title, lang}` to background.
-  - Writes model output back into the focused field (or shows an alert on error).
-- **Options Page (`options.html/js`)**
-  - Saves **API key**, **model**, **temperature**, **baseURL**, **redaction & policy** flags.
+
+#### **Sidebar UI (`sidebar.html/js`)**
+- Injected iframe on the right side of the page
+- Chat interface (messages + input)
+- Shows typing indicators, message history
+- "Autofill Form" button (when forms detected)
+
+#### **Background Service Worker (`background.ts`)**
+- Owns **LangChain ChatOpenAI** client
+- Handles two types of requests:
+  1. **Page chat**: `{pageContent, conversationHistory, userMessage}` → AI response
+  2. **Form autofill**: `{formFields, resumeData}` → filled values
+- Manages conversation history per tab
+- Stores resume data and parsed fields
+
+#### **Content Script (`content.ts`)**
+- Extracts page content (title, main text, metadata)
+- Detects forms and their fields
+- Injects sidebar iframe
+- Bridges messages between sidebar ↔ background
+
+#### **Options Page (`options.html/js`)**
+- API key configuration
+- Model settings (model name, temperature, baseURL)
+- Resume upload + preview
+- Privacy settings
 
 ### Data Flow
-1. User types in an input/textarea and presses ⌘/Ctrl+Enter.
-2. Content script reads value/selection → sends message `{mode, text, url, title}` to background.
-3. Background builds **prompt messages** → **LangChain** `ChatOpenAI.invoke(messages)`.
-4. Response returned to content → content replaces text (or shows a choice UI in v1.1).
+
+#### Chat Flow
+```
+1. User clicks extension icon
+2. Content script injects sidebar
+3. Sidebar loads, requests page content from content script
+4. Content script extracts page text → sends to sidebar
+5. User types: "Summarize this page"
+6. Sidebar → Background: {pageContent, history, userMsg}
+7. Background → LangChain: builds prompt with full context
+8. AI response → Sidebar displays
+9. Conversation continues with history
+```
+
+#### Autofill Flow
+```
+1. User uploads resume in Options page
+2. Background parses resume → extracts structured data
+3. User visits job application form
+4. Content script detects form fields
+5. User clicks "Autofill" in sidebar
+6. Sidebar → Background: {formFields, resumeData}
+7. Background → LangChain: "Map resume to these fields"
+8. AI generates field values
+9. Content script fills form
+10. User reviews and submits
+```
 
 ### Permissions
 ```json
 {
-  "permissions": ["storage", "activeTab", "scripting", "contextMenus"],
-  "host_permissions": ["https://api.openai.com/*"]
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "sidePanel"
+  ],
+  "host_permissions": ["<all_urls>"]
 }
 ```
-Optionally add proxy host to `host_permissions` if you deploy one.
 
-### Storage
-- `chrome.storage.local`: `{ openaiKey, model, temperature, baseUrl, policy }`.
-- No Chrome sync by default (privacy). Toggleable later.
+### Storage Schema
+```typescript
+interface StorageSchema {
+  // Settings
+  openaiKey: string;
+  model: string;           // e.g., "gpt-4o-mini"
+  temperature: number;
+  baseUrl: string;
 
----
+  // Resume data (parsed)
+  resumeData: {
+    raw: string;
+    parsed: {
+      name: string;
+      email: string;
+      phone: string;
+      summary: string;
+      experience: Array<{company, role, duration, description}>;
+      education: Array<{school, degree, year}>;
+      skills: string[];
+    }
+  };
 
-## 4) OpenAI + LangChain Integration
-
-### Library
-- `@langchain/openai` + `@langchain/core` (ESM). Backed by OpenAI JS SDK internally.
-
-### Model Abstraction
-- Primary: `ChatOpenAI` with settings:
-  ```ts
-  const llm = new ChatOpenAI({
-    model: settings.model,           // e.g., "gpt-5-mini"
-    temperature: settings.temperature,
-    apiKey: settings.openaiKey,
-    baseURL: settings.baseUrl        // default: "https://api.openai.com/v1"
-  });
-  ```
-- Allows Azure/OpenRouter/self‑hosted proxy by changing `baseURL` and `model` alias.
-
-### Request Shape (Messages)
-```ts
-const messages = [
-  { role: "system", content: "You are a precise writing assistant. Improve clarity, fix grammar, keep intent. Be concise." },
-  { role: "user", content: `Page: ${title} ${url}
-
-Text to improve:
-${text}
-
-Rewrite:` }
-];
-const result = await llm.invoke(messages as any);
+  // Conversation history (per tab)
+  conversations: {
+    [tabId: string]: {
+      pageContext: {url, title, content};
+      messages: Array<{role: 'user' | 'assistant', content: string}>;
+      timestamp: number;
+    }
+  };
+}
 ```
 
-### Streaming (v1.1)
-- Swap `invoke` for `stream()` to support token streaming → surface as ghost text in the content script.
+---
+
+## 4) Core Features Breakdown
+
+### 4.1) Page Content Extraction
+
+**Goal**: Extract clean, relevant text from any webpage
+
+```typescript
+function extractPageContent() {
+  // Use Readability.js or custom extraction
+  const article = new Readability(document).parse();
+
+  return {
+    url: window.location.href,
+    title: document.title,
+    mainContent: article?.textContent || fallbackExtraction(),
+    metadata: {
+      description: getMeta('description'),
+      author: getMeta('author'),
+      publishDate: getMeta('article:published_time')
+    }
+  };
+}
+
+function fallbackExtraction() {
+  // Remove scripts, styles, nav, footer
+  // Get text from main, article, or body
+  // Truncate to reasonable size (10k chars)
+}
+```
+
+**Handling Large Pages**:
+- Truncate to ~10k characters for v1
+- Prioritize: article content > headings > paragraphs
+- v1.1: Implement chunking + map-reduce for very long pages
+
+### 4.2) Sidebar Chat Interface
+
+**UI Components**:
+- Header: Page title + "Clear conversation" button
+- Message list: User/Assistant messages with timestamps
+- Input: Text box + send button
+- Footer: Token usage, "Autofill" button (if form detected)
+
+**Features**:
+- Auto-scroll to latest message
+- Typing indicator while AI responds
+- Copy message button
+- Markdown rendering (for code, lists, etc.)
+
+**Sample Prompts** (for user inspiration):
+- "Summarize this page in 3 bullet points"
+- "What's the main argument?"
+- "Explain this like I'm 5"
+- "Find contact information"
+- "What's the conclusion?"
+
+### 4.3) Conversation Memory (v1)
+
+**Implementation**:
+```typescript
+// In background worker
+const conversations = new Map<number, Conversation>();
+
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (msg.type === 'CHAT') {
+    const tabId = sender.tab?.id;
+    let conv = conversations.get(tabId) || createNewConversation(msg.pageContext);
+
+    // Add user message
+    conv.messages.push({role: 'user', content: msg.userMessage});
+
+    // Build prompt with history
+    const prompt = buildChatPrompt(conv);
+
+    // Get AI response
+    const response = await llm.invoke(prompt);
+
+    // Add assistant message
+    conv.messages.push({role: 'assistant', content: response});
+
+    // Update conversation
+    conversations.set(tabId, conv);
+
+    return response;
+  }
+});
+```
+
+**Prompt Structure**:
+```
+System: You are a helpful assistant that answers questions about web pages.
+
+Page Context:
+Title: {title}
+URL: {url}
+Content: {truncated page text}
+
+Conversation History:
+User: {previous question 1}
+Assistant: {previous answer 1}
+User: {previous question 2}
+Assistant: {previous answer 2}
+
+User: {current question}
+Assistant:
+```
+
+**Memory Management**:
+- Keep last 10 messages per tab
+- Clear conversation when user navigates to different domain
+- Persist in chrome.storage.session (cleared on browser close)
+
+### 4.4) Form Autofill System
+
+**Step 1: Resume Parsing**
+```typescript
+// When user uploads resume
+async function parseResume(file: File) {
+  const text = await extractText(file); // PDF.js or plain text
+
+  // Use LLM to structure data
+  const prompt = `
+  Extract structured information from this resume:
+  ${text}
+
+  Return JSON with: name, email, phone, summary, experience[], education[], skills[]
+  `;
+
+  const structured = await llm.invoke(prompt);
+
+  // Store in chrome.storage.local
+  await chrome.storage.local.set({resumeData: JSON.parse(structured)});
+}
+```
+
+**Step 2: Form Field Detection**
+```typescript
+// Content script detects all form fields
+function detectFormFields() {
+  const fields = [];
+
+  document.querySelectorAll('input, textarea, select').forEach(el => {
+    if (el.type === 'hidden' || el.type === 'password') return;
+
+    fields.push({
+      selector: getUniqueSelector(el),
+      type: el.type || el.tagName,
+      label: findLabel(el),
+      name: el.name,
+      placeholder: el.placeholder,
+      value: el.value
+    });
+  });
+
+  return fields;
+}
+```
+
+**Step 3: AI-Powered Mapping**
+```typescript
+// Background worker
+async function autofillForm(formFields, resumeData) {
+  const prompt = `
+  You are an expert at filling job application forms.
+
+  Resume Data:
+  ${JSON.stringify(resumeData, null, 2)}
+
+  Form Fields to Fill:
+  ${formFields.map(f => `${f.label || f.name}: ${f.type}`).join('\n')}
+
+  For each field, provide the appropriate value from the resume.
+  For essay questions (e.g., "Why do you want this job?"), write a brief, professional response.
+
+  Return JSON: [{selector, value}, ...]
+  `;
+
+  const filled = await llm.invoke(prompt);
+  return JSON.parse(filled);
+}
+```
+
+**Step 4: Fill & Preview**
+```typescript
+// Content script fills form
+function fillForm(mappings) {
+  mappings.forEach(({selector, value}) => {
+    const el = document.querySelector(selector);
+    if (el) {
+      el.value = value;
+      el.dispatchEvent(new Event('input', {bubbles: true}));
+    }
+  });
+
+  // Highlight filled fields
+  // Show preview in sidebar
+}
+```
 
 ---
 
-## 5) Features & Prompts
+## 5) Technology Stack
 
-### Modes
-- **rewrite**: clarity, brevity, same intent.
-- **fix**: grammar & punctuation only; keep wording.
-- **tone**: target tone (e.g., friendly, formal, assertive).
-- **explain**: plain‑English explanation; 3–5 bullets max.
+### Core Libraries
+- **Preact**: Lightweight UI framework for sidebar and options page
+- **Plain JavaScript**: Vanilla JS for content scripts and background worker
+- **@langchain/openai** + **@langchain/core**: LLM integration
+- **Readability.js**: Page content extraction
+- **PDF.js**: Resume PDF parsing (optional, could use API)
+- **Marked.js**: Markdown rendering in sidebar
+- **TypeScript** + **esbuild**: Build system
 
-### Prompt Templates (v1)
-- **Rewrite**
-  ```text
-  System: You are a precise writing assistant. Improve clarity, fix grammar, keep the same intent. Be concise.
-  User: Page: <title> <url>
-  Text to improve:
-  <text>
-  Rewrite:
-  ```
-- **Fix**
-  ```text
-  System: You are a helpful proofreader. Correct grammar/spelling/punctuation without changing tone or meaning.
-  User: <text>
-  Return only the corrected text.
-  ```
-- **Tone**
-  ```text
-  System: You rewrite text to match the requested tone while preserving meaning.
-  User: Tone: <friendly|formal|confident|neutral>
-  Text: <text>
-  Return only the rewritten text.
-  ```
-- **Explain**
-  ```text
-  System: You explain things in simple language with concrete examples when useful.
-  User: Context: <title> <url>
-  Explain this, keeping to ≤5 short bullets:
-  <text>
-  ```
-
-### Language Detection
-- Content script sends `document.documentElement.lang || navigator.language` to choose response language automatically.
+### Optional (v1.3)
+- **LangChain VectorStore**: For RAG memory
+- **ChromaDB** or **LanceDB**: Vector DB (WASM version)
+- **Embeddings**: OpenAI embeddings for semantic search
 
 ---
 
-## 6) Context Collection & Limits
+## 6) Implementation Phases
 
-- **Inputs**: selected text **OR** current field value; page `title`, `url`, `lang`.
-- **Sanitization**: collapse whitespace, strip HTML, cut at safe token limit (e.g., 4k chars for v1).
-- **PII Redaction** (toggleable): mask emails, phone numbers, credit‑card‑like patterns via regex before sending to API.
-- **Blocklist**: never send from password/credit‑card fields; allowlist/denylist per domain (e.g., corporate domains = local only later).
+### Phase 1: Foundation (Week 1)
+- [ ] Project setup (manifest, tsconfig, esbuild)
+- [ ] Options page (API key config)
+- [ ] Background worker + LangChain integration
+- [ ] Basic chat: hardcoded context, no memory
+
+### Phase 2: Sidebar Chat (Week 2)
+- [ ] Sidebar UI (HTML/CSS/JS)
+- [ ] Content extraction module
+- [ ] Message passing: sidebar ↔ content ↔ background
+- [ ] Display page-aware responses
+- [ ] Add conversation memory
+
+### Phase 3: Form Autofill (Week 3)
+- [ ] Resume upload in Options
+- [ ] Resume parser (LLM-based)
+- [ ] Form field detector
+- [ ] Autofill logic (AI mapping)
+- [ ] Preview & fill UI
+
+### Phase 4: Polish & Test (Week 4)
+- [ ] Error handling & loading states
+- [ ] Test on real sites (LinkedIn, Indeed, company career pages)
+- [ ] Performance optimization (token limits, chunking)
+- [ ] Privacy audit (no leaks, secure storage)
+- [ ] Documentation & packaging
 
 ---
 
 ## 7) Security & Privacy
 
-- **Keys**: stored in `chrome.storage.local` only. No anonymous telemetry by default.
-- **Network**: direct to OpenAI OR via user‑operated proxy (Cloudflare/Vercel). HTTPS only.
-- **No background data hoarding**: messages are ephemeral per request; no logging of prompts or results.
-- **Future**: per‑site privacy policy UI, granular consent banners for first‑time domains.
+### Data Privacy
+- **Local-first**: All data in `chrome.storage.local` (never synced)
+- **No telemetry**: Zero analytics, no tracking
+- **Secure transmission**: HTTPS only to OpenAI (or user's baseURL)
+- **Sensitive fields**: Never read password, credit card fields
+
+### Resume Data
+- Stored encrypted (optional: user can set passphrase)
+- Clear data button in Options
+- Never sent to third parties (only to user's OpenAI API)
+
+### Page Content
+- Only send visible text (no scripts, no hidden content)
+- User can exclude domains (blocklist)
+- Per-domain consent (optional: ask before first use on site)
 
 ---
 
-## 8) Error Handling & Resilience
+## 8) User Experience
 
-- **API errors**: surface friendly messages; show raw code in Dev Mode.
-- **429 rate limits**: exponential backoff (jitter), up to 3 retries.
-- **Service worker lifetime**: keep warm via message activity; avoid long‑running tasks; chunk big prompts.
-- **Offline**: detect `navigator.onLine`; show “offline” banner; skip network calls.
+### First-Time Setup
+1. Install extension
+2. Click icon → prompted to set API key
+3. Navigate to Options → paste OpenAI key
+4. (Optional) Upload resume for autofill
+5. Visit any page → click icon → sidebar opens
+6. Start chatting!
 
----
-
-## 9) Performance
-
-- **Bundle**: esbuild with minify + tree‑shaking; avoid large deps in content script.
-- **Messaging**: small payloads only (text + small metadata); no binary.
-- **UI**: button injected lazily; MutationObserver throttled; avoid layout jank.
-
----
-
-## 10) Configuration (Options UI)
-
-Fields:
-- `openaiKey` (password field)
-- `model` (text, e.g., `gpt-5-mini`)
-- `temperature` (0–2; default 0.2)
-- `baseUrl` (default `https://api.openai.com/v1`)
-- `redactionEnabled` (boolean)
-- `domainPolicy` (JSON textarea for allow/deny rules)
-
-Validation:
-- Mask key in UI; test credentials by calling `/models` (optional proxy) or a tiny “hello” request.
+### Daily Use
+- Browse normally
+- Need help understanding page? → Open sidebar → Ask question
+- Filling job application? → Open sidebar → "Autofill Form"
+- Switch pages → Fresh conversation with new context
 
 ---
 
-## 11) File Layout
+## 9) Testing Strategy
+
+### Manual Testing Sites
+- **News articles**: NYTimes, Medium, Substack
+- **Documentation**: MDN, React docs, API docs
+- **Social media**: Twitter/X threads, Reddit posts
+- **Job applications**: LinkedIn, Indeed, Greenhouse forms
+- **E-commerce**: Product pages, checkout forms
+
+### Test Cases
+- Long pages (10k+ words) → truncation works
+- Pages with little content → graceful handling
+- Complex forms (multi-step, conditional fields)
+- Resume parsing (PDF, DOCX, plain text)
+- Follow-up questions use conversation history
+- API errors (rate limits, invalid key)
+
+---
+
+## 10) Roadmap
+
+### v1.0 (MVP) - 4 weeks
+- ✅ Sidebar chat with page context
+- ✅ Conversation memory (session-based)
+- ✅ Form autofill from resume
+- ✅ Options page (API key, resume upload)
+
+### v1.1 - Add intelligence
+- Stream responses (token-by-token)
+- Better page extraction (handle dynamic content, SPAs)
+- Form field validation before fill
+- Multiple resume profiles (personal, professional)
+
+### v1.2 - Enhanced context
+- Page summarization on open
+- Quick actions: "Summarize", "Key Points", "TLDR"
+- Export conversation as markdown
+- Support for images in page context (vision models)
+
+### v1.3 - Long-term memory (RAG)
+- Vector DB integration (ChromaDB)
+- Store: past conversations, user preferences, documents
+- Semantic search across history
+- "Remember that article about X we discussed"
+
+### v2.0 - Advanced features
+- Multi-model support (Claude, local LLMs)
+- Browser action automation (click, navigate)
+- Workflow builder (if X then Y)
+- Desktop app sync (optional)
+
+---
+
+## 11) Decisions Made
+
+### Technical
+- [x] **How to handle very large pages (50k+ chars)?**
+  - **Decision**: Use GPT-4o-128k (Option C) - Simple and handles large contexts natively
+
+- [x] **Resume parsing: LLM-based or rule-based?**
+  - **Decision**: Rule-based (Option B) - Cheaper and faster for structured resume data
+
+- [x] **Conversation storage: session vs local?**
+  - **Decision**: User choice (Option C) - Toggle in Options for flexibility
+
+### UX
+- [x] **Should sidebar auto-open on page load?**
+  - **Decision**: Yes, but minimized (just icon visible) - Discoverable without being intrusive
+
+- [x] **Autofill UX: automatic or preview-first?**
+  - **Decision**: Hybrid - Auto-fill simple fields, preview essays before submission
+
+### UI Framework
+- [x] **Frontend framework choice?**
+  - **Decision**: Plain JavaScript + Preact - Lightweight, fast, minimal bundle size
+
+---
+
+## 12) Cost Optimization
+
+### Token Usage
+- Average page: ~3k tokens (content) + ~500 (conversation)
+- Average response: ~300 tokens
+- Cost per interaction: ~$0.01 (GPT-4o-mini)
+- With autofill: ~$0.05 per form (more complex prompt)
+
+### Optimization Strategies
+- Use `gpt-4o-mini` as default (cheaper, fast)
+- Truncate page content aggressively
+- Cache page content (don't re-send on every message)
+- User setting: "Economy mode" (shorter responses)
+
+---
+
+## 13) File Structure
 
 ```
-roomi-copilot/
-  manifest.json
-  package.json
-  src/
-    background.ts     # LangChain client + request handler
-    content.ts        # injects UI, hotkeys, message bridge
-    options.html
-    options.js
-  dist/               # build output
-```
-
-**Build**
-```bash
-npm run build
-# Chrome → chrome://extensions → Developer mode → Load unpacked → ./dist
-```
-
----
-
-## 12) Testing & QA
-
-### Unit
-- Functions: prompt builders, redaction, domain policy matching.
-- Mock LangChain `ChatOpenAI` to test call shapes.
-
-### E2E
-- **Puppeteer**: load extension, navigate to Gmail/Slack/Docs clones, type in fields, assert transformed output.
-- **Manual matrix**: Gmail, Outlook Web, Twitter/X, LinkedIn, Notion, Google Docs, GitHub PR comment.
-
-### Security
-- Attempt to extract values from password fields → must fail.
-- Verify PII masking when enabled.
-
----
-
-## 13) Release & Distribution
-
-- Bump `version` in `manifest.json` and `package.json`.
-- `npm run build` → zip `dist/` for Chrome Web Store.
-- Provide a privacy policy page (state no data collection; API calls contain only user text).
-
----
-
-## 14) Roadmap
-
-- **v1.0**: Rewrite/Fix/Tone/Explain, hotkeys, options, basic redaction.
-- **v1.1**: Streaming autocomplete (ghost text), multi‑candidate review UI.
-- **v1.2**: Page Q&A (Readability extraction + chunking), inline answers in a popover.
-- **v1.3**: Personal memory snippets (local SQLite via WASM), style learning (opt‑in).
-- **v2.0**: macOS app bridge (menu bar, global palette), shared agent.
-
----
-
-## 15) Acceptance Criteria (v1)
-
-- Can load extension and set API key/model in Options.
-- Pressing ⌘/Ctrl+Enter in a textarea replaces the text with a cleaner rewrite within 1–2s (typical).
-- Context menu “Explain with Roomi” returns ≤5 understandable bullets.
-- Redaction toggle masks emails/phones in prompts.
-- No data read from password/credit‑card fields.
-- Works on: Gmail compose, Twitter/X post box, LinkedIn message, GitHub comment box, and Notion page.
-
----
-
-## 16) Open Questions
-
-- Should we add a **model dropdown** populated via proxy (safer) vs free‑text model id?
-- Do we want per‑site **always‑local** rules from day one?
-- How strict should default redaction be (risk of over‑masking code/IDs)?
-- Local caching of last N prompts/outputs (purely in-memory) for undo?
-
----
-
-## 17) Pseudocode: Background Handler
-
-```ts
-import { ChatOpenAI } from "@langchain/openai";
-
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type !== "ROOMI_AGENT") return;
-  (async () => {
-    const settings = await chrome.storage.local.get(["openaiKey","model","temperature","baseUrl","redactionEnabled","domainPolicy"]);
-    const { mode, text, title, url, lang } = msg.payload;
-
-    // Policy & redaction (simplified)
-    const policy = parsePolicy(settings.domainPolicy);
-    if (policy?.deny?.some((p:string)=> url.includes(p))) throw new Error("Domain blocked by policy.");
-    const safeText = settings.redactionEnabled ? redact(text) : text;
-
-    const llm = new ChatOpenAI({
-      model: settings.model || "gpt-5-mini",
-      temperature: Number(settings.temperature ?? 0.2),
-      apiKey: settings.openaiKey,
-      baseURL: settings.baseUrl || "https://api.openai.com/v1"
-    });
-
-    const messages = buildMessages(mode, safeText, { title, url, lang });
-    const ai = await llm.invoke(messages as any);
-    sendResponse({ ok: true, text: toStringContent(ai) });
-  })().catch(err => sendResponse({ ok: false, error: err.message }));
-  return true;
-});
+agent-help/
+├── manifest.json
+├── package.json
+├── tsconfig.json
+├── esbuild.config.js
+├── src/
+│   ├── background/
+│   │   ├── background.ts       # Main service worker
+│   │   ├── llm.ts              # LangChain client
+│   │   ├── chat-handler.ts     # Page chat logic
+│   │   ├── autofill-handler.ts # Form autofill logic
+│   │   └── resume-parser.ts    # Resume parsing
+│   ├── content/
+│   │   ├── content.ts          # Main content script
+│   │   ├── extractor.ts        # Page content extraction
+│   │   ├── form-detector.ts    # Form field detection
+│   │   └── sidebar-injector.ts # Sidebar injection
+│   ├── sidebar/
+│   │   ├── sidebar.html
+│   │   ├── sidebar.ts
+│   │   ├── chat-ui.ts          # Chat interface
+│   │   └── sidebar.css
+│   ├── options/
+│   │   ├── options.html
+│   │   ├── options.ts
+│   │   └── options.css
+│   └── shared/
+│       ├── types.ts            # TypeScript interfaces
+│       ├── storage.ts          # Storage helpers
+│       └── utils.ts            # Shared utilities
+├── dist/                       # Build output
+└── README.md
 ```
 
 ---
 
-## 18) Metrics (Opt‑in, later)
+## 14) Acceptance Criteria (v1)
 
-- Local counters: successes, errors, avg latency (no content logging).
-- If enabled, send anonymous aggregates to your own endpoint (with user consent).
+### Chat
+- [ ] Can open sidebar on any webpage
+- [ ] Can ask "What's this page about?" and get relevant answer
+- [ ] Can ask follow-up questions using conversation history
+- [ ] Responses appear within 2-3 seconds
+- [ ] Chat history persists within tab session
+
+### Autofill
+- [ ] Can upload resume (PDF/text) in Options
+- [ ] Resume is parsed and stored successfully
+- [ ] On job application page, "Autofill" button appears
+- [ ] Clicking autofill populates form fields correctly
+- [ ] Can review and edit before submitting
+- [ ] Works on 3+ major job sites (LinkedIn, Indeed, Greenhouse)
+
+### General
+- [ ] API key saved securely in Options
+- [ ] Works on 10+ different websites (news, docs, social, e-commerce)
+- [ ] No crashes or errors in normal use
+- [ ] Extension size < 5MB
+- [ ] No memory leaks (tested with 10+ tabs open)
 
 ---
 
-## 19) Cost Controls
+## 15) Success Metrics
 
-- Temperature default 0.2; keep prompts lean; truncate inputs.
-- Optional “economy mode” model (e.g., `gpt-5-mini`) vs “quality mode”.
+### User Engagement (if we track locally)
+- Sidebar opens per session
+- Messages sent per session
+- Autofill uses per week
+- Returning users (if we had accounts)
+
+### Quality
+- Response relevance (user feedback: 👍/👎)
+- Autofill accuracy (fields filled correctly)
+- API errors (should be < 1%)
 
 ---
 
-## 20) Compliance Notes
-
-- Provide GDPR/CCPA‑style toggle: “Do not send data to third‑party AI” (disables calls unless proxy marked first‑party).
-- Clear privacy policy describing data handling.
+**End of Plan v2**
 
 ---
 
-**End of Plan**
+## Next Steps
+
+1. **Review & Approve**: Does this align with your vision?
+2. **Start Phase 1**: Set up project structure
+3. **Build MVP**: Focus on sidebar chat first, then autofill
+4. **Iterate**: Test, gather feedback, improve
+
+Ready to start building! 🚀
