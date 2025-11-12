@@ -132,8 +132,9 @@ async function extractTextFromPDF(file: File): Promise<string> {
     // Dynamic import for PDF.js to avoid bundling issues
     const pdfjsLib = await import('pdfjs-dist');
 
-    // Set worker source
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+    // Set worker source to bundled local worker
+    // Use chrome.runtime.getURL to get the proper extension URL
+    pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('pdf.worker.min.mjs');
 
     // Read file as array buffer
     const arrayBuffer = await file.arrayBuffer();
