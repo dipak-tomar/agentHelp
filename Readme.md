@@ -1,4 +1,4 @@
-# Roomi Copilot (Browser‑Only) — Technical Plan
+# Agent Help (Browser‑Only) — Technical Plan
 
 > Scope: **Chrome/Edge/Brave extension (MV3)** powered by **OpenAI via LangChainJS**.  
 > Goal: Writing assistance (rewrite, grammar, tone), selection “explain”, and a foundation for future features (streaming autocomplete, page Q&A).
@@ -24,7 +24,7 @@
 ## 2) User Stories
 
 - *As a user*, I can press ⌘/Ctrl+Enter in any text box to get a cleaner, concise rewrite without changing intent.
-- *As a user*, I can select any text on a page, right‑click → “Explain with Roomi” to get a plain‑English summary.
+- *As a user*, I can select any text on a page, right‑click → "Explain with Agent Help" to get a plain‑English summary.
 - *As a user*, I can pick model (`gpt-5`, `gpt-5-mini`, etc.) and temperature in an Options page.
 - *As a user*, I can trust the extension to never read passwords or secret fields and to avoid sending data from blocked domains.
 
@@ -197,7 +197,7 @@ Validation:
 ## 11) File Layout
 
 ```
-roomi-copilot/
+agent-help/
   manifest.json
   package.json
   src/
@@ -254,7 +254,7 @@ npm run build
 
 - Can load extension and set API key/model in Options.
 - Pressing ⌘/Ctrl+Enter in a textarea replaces the text with a cleaner rewrite within 1–2s (typical).
-- Context menu “Explain with Roomi” returns ≤5 understandable bullets.
+- Context menu "Explain with Agent Help" returns ≤5 understandable bullets.
 - Redaction toggle masks emails/phones in prompts.
 - No data read from password/credit‑card fields.
 - Works on: Gmail compose, Twitter/X post box, LinkedIn message, GitHub comment box, and Notion page.
@@ -276,7 +276,7 @@ npm run build
 import { ChatOpenAI } from "@langchain/openai";
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type !== "ROOMI_AGENT") return;
+  if (msg?.type !== "AGENT_HELP") return;
   (async () => {
     const settings = await chrome.storage.local.get(["openaiKey","model","temperature","baseUrl","redactionEnabled","domainPolicy"]);
     const { mode, text, title, url, lang } = msg.payload;
