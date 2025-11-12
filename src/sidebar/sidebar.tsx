@@ -62,7 +62,7 @@ function App() {
     }
   }
 
-  // Send chat message
+  // Send chat message with streaming
   async function sendMessage() {
     if (!input.trim() || !pageContext || loading) return;
 
@@ -77,32 +77,58 @@ function App() {
     setLoading(true);
     setError(null);
 
+    // Add placeholder for assistant message
+    const assistantMessageIndex = messages.length + 1;
+    const assistantMessage: Message = {
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+    };
+    setMessages((prev) => [...prev, assistantMessage]);
+
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-      const response = await chrome.runtime.sendMessage({
-        type: 'CHAT_MESSAGE',
-        tabId: tab.id,
+      // Create streaming connection
+      const port = chrome.runtime.connect({ name: 'chat-stream' });
+
+      port.onMessage.addListener((message) => {
+        if (message.type === 'STREAM_CHUNK') {
+          // Append chunk to assistant message
+          setMessages((prev) => {
+            const updated = [...prev];
+            const lastMsg = updated[assistantMessageIndex];
+            if (lastMsg && lastMsg.role === 'assistant') {
+              lastMsg.content += message.chunk;
+            }
+            return updated;
+          });
+        } else if (message.type === 'STREAM_COMPLETE') {
+          setLoading(false);
+          port.disconnect();
+        } else if (message.type === 'STREAM_ERROR') {
+          setError(message.error || 'Failed to get response');
+          setLoading(false);
+          port.disconnect();
+        }
+      });
+
+      port.onDisconnect.addListener(() => {
+        setLoading(false);
+      });
+
+      // Send message to start streaming
+      port.postMessage({
+        type: 'CHAT_MESSAGE_STREAM',
         payload: {
+          tabId: tab.id,
           userMessage: userMessage.content,
           pageContext,
         },
       });
-
-      if (response.success) {
-        const assistantMessage: Message = {
-          role: 'assistant',
-          content: response.response,
-          timestamp: Date.now(),
-        };
-        setMessages((prev) => [...prev, assistantMessage]);
-      } else {
-        setError(response.error || 'Failed to get response');
-      }
     } catch (error: any) {
       console.error('Chat error:', error);
       setError(error.message || 'Failed to send message');
-    } finally {
       setLoading(false);
     }
   }

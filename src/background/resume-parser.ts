@@ -94,30 +94,74 @@ function parseResumeResponse(content: string): ParsedResume {
   }
 }
 
-// Extract text from file (supporting plain text and basic PDF parsing)
+// Extract text from file (supporting plain text and PDF)
 export async function extractTextFromFile(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
+  // Handle text files
+  if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
 
-    reader.onload = (e) => {
-      const text = e.target?.result as string;
-      if (!text || text.trim().length === 0) {
-        reject(new Error('File is empty or unreadable'));
-      } else {
-        resolve(text);
-      }
-    };
+      reader.onload = (e) => {
+        const text = e.target?.result as string;
+        if (!text || text.trim().length === 0) {
+          reject(new Error('File is empty or unreadable'));
+        } else {
+          resolve(text);
+        }
+      };
 
-    reader.onerror = () => {
-      reject(new Error('Failed to read file'));
-    };
+      reader.onerror = () => {
+        reject(new Error('Failed to read file'));
+      };
 
-    // For now, only support plain text
-    // TODO: Add PDF.js support for PDF files
-    if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
       reader.readAsText(file);
-    } else {
-      reject(new Error('Only .txt files are supported in this version. PDF support coming soon.'));
+    });
+  }
+
+  // Handle PDF files
+  if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+    return extractTextFromPDF(file);
+  }
+
+  throw new Error('Unsupported file type. Please upload a .txt or .pdf file.');
+}
+
+// Extract text from PDF using PDF.js
+async function extractTextFromPDF(file: File): Promise<string> {
+  try {
+    // Dynamic import for PDF.js to avoid bundling issues
+    const pdfjsLib = await import('pdfjs-dist');
+
+    // Set worker source
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
+    // Read file as array buffer
+    const arrayBuffer = await file.arrayBuffer();
+
+    // Load PDF document
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+    // Extract text from all pages
+    const textParts: string[] = [];
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item: any) => item.str)
+        .join(' ');
+      textParts.push(pageText);
     }
-  });
+
+    const fullText = textParts.join('\n\n');
+
+    if (!fullText.trim()) {
+      throw new Error('No text found in PDF. The PDF might be an image or scanned document.');
+    }
+
+    return fullText;
+  } catch (error: any) {
+    console.error('PDF extraction error:', error);
+    throw new Error(`Failed to extract text from PDF: ${error.message}`);
+  }
 }

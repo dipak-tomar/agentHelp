@@ -1,7 +1,8 @@
+import { Readability } from '@mozilla/readability';
 import { PageContext } from '../shared/types';
 import { truncateText } from '../shared/utils';
 
-// Extract page content using a simplified approach (Readability.js can be added later)
+// Extract page content using Readability.js with fallback
 export function extractPageContent(): PageContext {
   try {
     // Get page metadata
@@ -11,12 +12,37 @@ export function extractPageContent(): PageContext {
       publishDate: getMetaContent('article:published_time'),
     };
 
-    // Extract main content
-    const content = extractMainContent();
+    // Try using Readability for article extraction
+    let content = '';
+    let title = document.title;
+
+    try {
+      // Clone document for Readability
+      const documentClone = document.cloneNode(true) as Document;
+      const reader = new Readability(documentClone);
+      const article = reader.parse();
+
+      if (article) {
+        content = article.textContent || article.content || '';
+        title = article.title || document.title;
+
+        // Update metadata if available
+        if (article.byline && !metadata.author) {
+          metadata.author = article.byline;
+        }
+      }
+    } catch (readabilityError) {
+      console.warn('Readability failed, falling back to manual extraction:', readabilityError);
+    }
+
+    // Fallback to manual extraction if Readability failed or returned empty
+    if (!content.trim()) {
+      content = extractMainContent();
+    }
 
     return {
       url: window.location.href,
-      title: document.title,
+      title: title,
       content: truncateText(content, 10000),
       metadata,
     };

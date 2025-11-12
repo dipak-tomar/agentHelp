@@ -209,7 +209,7 @@ function OptionsApp() {
         <section className="section">
           <h2>📄 Resume Data</h2>
           <p className="description">
-            Upload your resume for intelligent form autofill. Currently supports .txt files only.
+            Upload your resume for intelligent form autofill. Supports .txt and .pdf files.
           </p>
 
           {!resumeData ? (
@@ -217,12 +217,12 @@ function OptionsApp() {
               <label className="upload-btn">
                 <input
                   type="file"
-                  accept=".txt"
+                  accept=".txt,.pdf"
                   onChange={handleResumeUpload}
                   disabled={loading}
                   style={{ display: 'none' }}
                 />
-                📤 Upload Resume (.txt)
+                📤 Upload Resume (.txt or .pdf)
               </label>
             </div>
           ) : (

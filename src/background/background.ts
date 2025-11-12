@@ -1,10 +1,46 @@
-import { handleChatMessage } from './chat-handler';
+import { handleChatMessage, handleChatMessageStream } from './chat-handler';
 import { handleAutofillForm } from './autofill-handler';
 import { parseResume, extractTextFromFile } from './resume-parser';
 import { clearConversation, getSettings } from '../shared/storage';
 import { ExtensionMessage } from '../shared/types';
 
 console.log('Agent Help background service worker initialized');
+
+// Handle long-lived connections for streaming
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === 'chat-stream') {
+    port.onMessage.addListener(async (message) => {
+      if (message.type === 'CHAT_MESSAGE_STREAM') {
+        try {
+          const { tabId, userMessage, pageContext } = message.payload;
+
+          await handleChatMessageStream(
+            tabId,
+            userMessage,
+            pageContext,
+            (chunk: string) => {
+              // Send each chunk as it arrives
+              port.postMessage({
+                type: 'STREAM_CHUNK',
+                chunk,
+              });
+            }
+          );
+
+          // Signal completion
+          port.postMessage({
+            type: 'STREAM_COMPLETE',
+          });
+        } catch (error: any) {
+          port.postMessage({
+            type: 'STREAM_ERROR',
+            error: error.message || 'Failed to process chat message',
+          });
+        }
+      }
+    });
+  }
+});
 
 // Handle extension icon click - open side panel
 chrome.action.onClicked.addListener(async (tab) => {

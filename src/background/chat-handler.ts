@@ -4,6 +4,8 @@ import { getConversation, saveConversation } from '../shared/storage';
 import { PageContext, Message, Conversation } from '../shared/types';
 import { truncateText } from '../shared/utils';
 
+type StreamCallback = (chunk: string) => void;
+
 // Handle chat message with page context
 export async function handleChatMessage(
   tabId: number,
@@ -56,6 +58,71 @@ export async function handleChatMessage(
     await saveConversation(tabId, conversation);
 
     return assistantContent;
+  } catch (error) {
+    console.error('Chat handler error:', error);
+    throw error;
+  }
+}
+
+// Handle chat message with streaming support
+export async function handleChatMessageStream(
+  tabId: number,
+  userMessage: string,
+  pageContext: PageContext,
+  onChunk: StreamCallback
+): Promise<string> {
+  try {
+    // Get or create conversation
+    let conversation = await getConversation(tabId);
+
+    if (!conversation || conversation.pageContext.url !== pageContext.url) {
+      // New conversation for this page
+      conversation = {
+        pageContext,
+        messages: [],
+        timestamp: Date.now(),
+      };
+    }
+
+    // Add user message to history
+    const userMsg: Message = {
+      role: 'user',
+      content: userMessage,
+      timestamp: Date.now(),
+    };
+    conversation.messages.push(userMsg);
+
+    // Build prompt with context
+    const llm = await createLLMClient();
+    const messages = buildChatPrompt(conversation);
+
+    // Get AI response with streaming
+    let fullContent = '';
+    const stream = await llm.stream(messages);
+
+    for await (const chunk of stream) {
+      const content = chunk.content.toString();
+      fullContent += content;
+      onChunk(content);
+    }
+
+    // Add assistant message to history
+    const assistantMsg: Message = {
+      role: 'assistant',
+      content: fullContent,
+      timestamp: Date.now(),
+    };
+    conversation.messages.push(assistantMsg);
+
+    // Keep only last 10 messages to manage token usage
+    if (conversation.messages.length > 10) {
+      conversation.messages = conversation.messages.slice(-10);
+    }
+
+    // Save conversation
+    await saveConversation(tabId, conversation);
+
+    return fullContent;
   } catch (error) {
     console.error('Chat handler error:', error);
     throw error;
