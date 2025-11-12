@@ -364,6 +364,8 @@ function fillForm(mappings) {
 ## 5) Technology Stack
 
 ### Core Libraries
+- **Preact**: Lightweight UI framework for sidebar and options page
+- **Plain JavaScript**: Vanilla JS for content scripts and background worker
 - **@langchain/openai** + **@langchain/core**: LLM integration
 - **Readability.js**: Page content extraction
 - **PDF.js**: Resume PDF parsing (optional, could use API)
@@ -499,34 +501,28 @@ function fillForm(mappings) {
 
 ---
 
-## 11) Open Questions
+## 11) Decisions Made
 
 ### Technical
-- [ ] How to handle very large pages (50k+ chars)?
-  - **Option A**: Truncate intelligently (keep headings + first N chars)
-  - **Option B**: Chunk + map-reduce (summarize chunks, then answer)
-  - **Option C**: Use GPT-4o-128k (expensive but simple)
+- [x] **How to handle very large pages (50k+ chars)?**
+  - **Decision**: Use GPT-4o-128k (Option C) - Simple and handles large contexts natively
 
-- [ ] Resume parsing: LLM-based or rule-based?
-  - **LLM**: More flexible, handles any format
-  - **Rules**: Cheaper, faster, but brittle
-  - **Hybrid**: Rules for simple fields, LLM for complex ones
+- [x] **Resume parsing: LLM-based or rule-based?**
+  - **Decision**: Rule-based (Option B) - Cheaper and faster for structured resume data
 
-- [ ] Conversation storage: session vs local?
-  - **Session**: Cleared on browser close (more private)
-  - **Local**: Persists across sessions (better UX)
-  - **User choice**: Toggle in Options
+- [x] **Conversation storage: session vs local?**
+  - **Decision**: User choice (Option C) - Toggle in Options for flexibility
 
 ### UX
-- [ ] Should sidebar auto-open on page load?
-  - No (too intrusive)
-  - Yes, but minimized (just icon visible)
-  - Only on first visit to domain (onboarding)
+- [x] **Should sidebar auto-open on page load?**
+  - **Decision**: Yes, but minimized (just icon visible) - Discoverable without being intrusive
 
-- [ ] Autofill UX: automatic or preview-first?
-  - **Preview**: Show what will be filled, user approves
-  - **Automatic**: Fill immediately, user can undo
-  - **Hybrid**: Auto-fill simple fields, preview essays
+- [x] **Autofill UX: automatic or preview-first?**
+  - **Decision**: Hybrid - Auto-fill simple fields, preview essays before submission
+
+### UI Framework
+- [x] **Frontend framework choice?**
+  - **Decision**: Plain JavaScript + Preact - Lightweight, fast, minimal bundle size
 
 ---
 
